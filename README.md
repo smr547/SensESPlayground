@@ -1,9 +1,12 @@
-# SensESP Project Template
+# SensESPlayground
 
-This repository provides a template for [SensESP](https://github.com/SignalK/SensESP/) projects.
-Fork, clone or download the repository and try building and uploading the project to an ESP32 device.
-You should immediately see output on the serial monitor!
+A project based on SensESP Project Template
 
-To customize the template for your own purposes, edit the `src/main.cpp` and `platformio.ini` files.
+## Purpose
+To allow experimentation with [SensESP](https://github.com/SignalK/SensESP/)
 
+## SensESP documentation
 Comprehensive documentation for SensESP, including how to get started with your own project, is available at the [SensESP documentation site](https://signalk.org/SensESP/).
+
+## IDE
+This project is designed for use with [vscode](https://code.visualstudio.com/) and [platform.io](platformio.org)
