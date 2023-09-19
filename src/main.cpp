@@ -100,7 +100,7 @@ void setup() {
       kDigitalInput2Interval,
       [kDigitalInput2Pin]() { return digitalRead(kDigitalInput2Pin); });
 
-  // Connect the analog input to Signal K output. This will publish the
+  // C onnect the analog input to Signal K output. This will publish the
   // analog input value to the Signal K server every time it changes.
   analog_input->connect_to(new SKOutputFloat(
       "sensors.analog_input.voltage",         // Signal K path
