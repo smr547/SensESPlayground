@@ -8,22 +8,60 @@
 // Remove the parts that are not relevant to you, and add your own code
 // for external hardware libraries.
 
+#include <SparkFunBME280.h>
 #include "sensesp/sensors/analog_input.h"
 #include "sensesp/sensors/digital_input.h"
 #include "sensesp/sensors/sensor.h"
 #include "sensesp/signalk/signalk_output.h"
 #include "sensesp/system/lambda_consumer.h"
+#include "sensesp/transforms/linear.h"
+#include "sensesp/transforms/frequency.h"
+#include "sensesp/transforms/typecast.h"
 #include "sensesp_app_builder.h"
 
 using namespace sensesp;
 
 reactesp::ReactESP app;
 
+BME280 myBME280;
+unsigned int readTempIntervalMs = 2000;
+unsigned int readRainIntervalMs = 60 * 5 * 1000;  // report rain every 5 minutes
+const uint8_t rain_pin = 35;
+const uint8_t wind_speed_pin = 27;
+
 // The setup function performs one-time application initialization.
 void setup() {
 #ifndef SERIAL_DEBUG_DISABLED
   SetupSerialDebug(115200);
 #endif
+
+Wire.begin();
+
+//Initialize BME280
+  //For I2C, enable the following and disable the SPI section
+  myBME280.settings.commInterface = I2C_MODE;
+  myBME280.settings.I2CAddress = 0x77;
+  myBME280.settings.runMode = 3; //Normal mode
+  myBME280.settings.tStandby = 0;
+  myBME280.settings.filter = 4;
+  myBME280.settings.tempOverSample = 5;
+  myBME280.settings.pressOverSample = 5;
+  myBME280.settings.humidOverSample = 5;
+
+  //Calling .begin() causes the settings to be loaded
+  delay(10);  //Make sure sensor had enough time to turn on. BME280 requires 2ms to start up.
+  byte id = myBME280.begin(); //Returns ID of 0x60 if successful
+
+  Serial.print("BME280.begin() returned ");
+  Serial.println(id, HEX);
+
+  if (id != 0x60){
+    Serial.println("Problem with BME280");
+  } else {
+    Serial.println("BME280 online");
+  }
+
+
 
   // Construct the global SensESPApp() object
   SensESPAppBuilder builder;
@@ -118,6 +156,103 @@ void setup() {
       new SKMetadata("",                       // No units for boolean values
                      "Digital input 2 value")  // Value description
       ));
+
+  /*****************************************************
+   * TEMPERATURE                                       *
+   *****************************************************/
+  auto* study_room_temp = new RepeatSensor<float>(readTempIntervalMs, []() {
+    return (myBME280.readTempC() + 273.15);
+  });
+  
+  const char * sk_temp_path = "study.temperature";
+  SKMetadata* metadata = new SKMetadata();
+  metadata->description_ = "Study Temperature";
+  metadata->display_name_ = "Study Temperature";
+  metadata->short_name_ = "Study Temp";
+  metadata->units_ = "K";
+  study_room_temp->connect_to(new Linear(1.0,0.0, "/study/temperature/calibrate"))
+  ->connect_to(new SKOutputFloat(sk_temp_path, metadata));
+
+
+  /*****************************************************
+   * HUMIDITY                                          *
+   *****************************************************/
+  auto* study_humidity = new RepeatSensor<float>(readTempIntervalMs, []() {
+    return (myBME280.readFloatHumidity()/100.0);
+  });
+  
+  const char * sk_humidity_path = "study.humidity";
+  SKMetadata* metadata_humidity = new SKMetadata();
+  metadata_humidity->description_ = "Study Humidity";
+  metadata_humidity->display_name_ = "Study Humidity";
+  metadata_humidity->short_name_ = "Study Humid";
+  metadata_humidity->units_ = "ratio";
+  study_humidity->connect_to(new Linear(1.0,0.0, "/study/humdity/calibrate"))
+  ->connect_to(new SKOutputFloat(sk_humidity_path, metadata_humidity));
+
+
+
+  /*****************************************************
+   * PRESSURE                                          *
+   *****************************************************/
+  auto* study_pressure = new RepeatSensor<float>(readTempIntervalMs, []() {
+    return (myBME280.readFloatPressure());
+  });
+  
+  const char * sk_pressure_path = "study.pressure";
+  SKMetadata* metadata_pressure = new SKMetadata();
+  metadata_pressure->description_ = "Study Pressure";
+  metadata_pressure->display_name_ = "Study Pressure";
+  metadata_pressure->short_name_ = "Study Pres";
+  metadata_pressure->units_ = "Pa";
+  study_pressure->connect_to(new Linear(1.0,0.0, "/study/pressure/calibrate"))
+  ->connect_to(new SKOutputFloat(sk_pressure_path, metadata_pressure));
+
+
+  /*****************************************************
+   * RAIN                                              *
+   *****************************************************/
+
+  
+    const unsigned int ignore_interval_ms = 200;  // switch is kinda noisy
+    const float multiplier = 0.18;                // mm per count
+
+    // There's no path in the Signal K spec for rain, so let's make one.
+
+  const char * sk_rain_path = "study.rain.last5mins";
+  SKMetadata* metadata_rain = new SKMetadata();
+  metadata_rain->description_ = "Study Rain last 5 mins";
+  metadata_rain->display_name_ = "Study Rain 5 mins";
+  metadata_rain->short_name_ = "Study Rain";
+  metadata_rain->units_ = "mm";
+  
+  auto *study_rain = new DigitalInputDebounceCounter(
+        rain_pin, INPUT_PULLUP, FALLING, readRainIntervalMs, ignore_interval_ms);
+
+  study_rain->connect_to(new Typecast<int, float>())
+        ->connect_to(new Linear(multiplier, 0.0, "/study/rain/calibrate"))
+        ->connect_to(
+            new SKOutputFloat(sk_rain_path, metadata_rain));
+
+
+  /*****************************************************
+   * Wind speed                                        *
+   *****************************************************/
+    
+    uint wind_read_interval_ms = 3 * 1000 /* read every 3s */;
+    uint wind_ignore_interval_ms = 5 /* 200 counts/s, or 205m/s of wind */;
+
+  SKMetadata* metadata_windspeed = new SKMetadata();
+  metadata_windspeed->description_ = "Study windspeed";
+  metadata_windspeed->display_name_ = "Study windspeed";
+  metadata_windspeed->short_name_ = "Study windspeed";
+  metadata_windspeed->units_ = "m/s";
+    auto *wind_sensor = new DigitalInputDebounceCounter(
+        wind_speed_pin, INPUT_PULLUP, FALLING, wind_read_interval_ms, wind_ignore_interval_ms);
+    wind_sensor->connect_to(new Frequency(1.026, "/study/windspeed/calibrate"))
+        ->connect_to(new SKOutputFloat("study.wind.speedApparent", metadata_windspeed));
+  
+
 
   // Start networking, SK server connections and other SensESP internals
   sensesp_app->start();
